@@ -3,6 +3,11 @@ This repository is a fork from the original
 [Raspberry Pi UPS HAT V3](https://github.com/geekworm-com/ups3) 
 repository with the focus of making it compatible with python3.
 
+Systemctl service was originally configured to use the default 'pi' user.
+This did however not work, as the user 'pi' did not have the sufficient rights to read from i2c (i guess; i'm no expert...). User was changed to 'root'.
+
+Script's was also not using the python3 print() syntax, so this was corrected as well.
+
 Owners email contact: info@geekworm.com
 # Test
 This project has been tested on a Raspberry Pi 4 (Buster) system.
