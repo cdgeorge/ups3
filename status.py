@@ -206,7 +206,7 @@ def handle_signal():
 # Main Loop
 if __name__ == '__main__':
 	service_status = os.system("systemctl is-active --quiet smartups")
-	if service_status is 0:
+	if service_status == 0:
 		os.system("systemctl stop smartups")
 	status_loop = False
 	init_i2c()
