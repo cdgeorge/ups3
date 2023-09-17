@@ -166,31 +166,31 @@ def bq25895_read_status():
 def print_bq25895status():
 	global count
 	count = count + 1
-	print "         Count: " , count
-	print "         Input: " , bq25895_status['Input']
-	print "  ChargeStatus: " , bq25895_status['ChargeStatus']
-	print "BatteryVoltage: " , bq25895_status['BatteryVoltage'], "V"
-	#print "    BatterySOC: " , bq25895_status['BatterySOC'] , "%"
-	#print ""
+	print ("         Count: " , count)
+	print ("         Input: " , bq25895_status['Input'])
+	print ("  ChargeStatus: " , bq25895_status['ChargeStatus'])
+	print ("BatteryVoltage: " , bq25895_status['BatteryVoltage'], "V")
+	#print ("    BatterySOC: " , bq25895_status['BatterySOC'] , "%")
+	#print ("")
 	# print("VSYS_STAT: ", bin(vsys_stat), "SDP_STAT: ", bin(sdp_stat), 
 		# "PG_STAT:", bin(pg_stat), "CHRG_STAT:" , bin(chrg_stat), 
 		# "VBUS_STAT:", bin(vbus_stat))
 	
 def print_max17048status():
-	#print "Status of max17048:"
-	#print "BatteryVoltage: " , '%.2f' % max17048_v , "V"
-	print "           SOC: " , max17048_soc , "%"
-	#print "Status of bq25895:"
+	#print ("Status of max17048:")
+	#print ("BatteryVoltage: " , '%.2f' % max17048_v , "V")
+	print ("           SOC: " , max17048_soc , "%")
+	#print ("Status of bq25895:")
 
 def get_print_all_status():
 	max17048_getstatus()
 	bq25895_read_status()
 	print_bq25895status()
 	print_max17048status()
-	print ""
+	print ("")
 	
 def handler(signum, frame):
-	print "Signal is received:" + str(signum)
+	print ("Signal is received:" + str(signum))
 	os.system("systemctl start smartups")
 	exit_thread=True
 	thread_led.join()
@@ -212,7 +212,7 @@ if __name__ == '__main__':
 	init_i2c()
 	max17048_init()
 	bq25895_init()
-	print "Reading status..."
+	print ("Reading status...")
 	
 	try:
 		get_print_all_status()
