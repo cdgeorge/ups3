@@ -92,21 +92,27 @@ def bq25895_read_reg(reg):
 
 # BQ25895 read status
 def bq25895_read_status():
-	global SLEEPDELAY, disconnectflag, batpercentprev, bq25895_status
+	global SLEEPDELAY, disconnectflag, batpercentprev, bq25895_status, UsbPluggedCount
+	bq25895_regs={}
 	bus.write_byte_data(BQ25895_ADDRESS, REG_CONV_ADC, BYTE_CONV_ADC_START)
 	sample = bus.read_byte_data(BQ25895_ADDRESS, REG_STATUS)
+	bq25895_regs["REG0B"]=sample
 	status = bq25895_int_to_bool_list(sample)
 	time.sleep(1.2)
 	sample = bus.read_byte_data(BQ25895_ADDRESS, REG_BATV)
+	bq25895_regs["REG0E"]=sample
 	batvbool = bq25895_int_to_bool_list(sample)
 	bus.write_byte_data(BQ25895_ADDRESS, REG_CONV_ADC, BYTE_CONV_ADC_STOP)
-	#print(sample)
-	vsys_stat = status[0]
-	sdp_stat = status[1]
-	pg_stat = status[2]
-	chrg_stat = status[4] * 2 + status[3]
+	sample = bus.read_byte_data(BQ25895_ADDRESS, 0x13)
+	bq25895_regs["REG13"]=sample
+	IDPM_LIM_BITS=sample&0x3f
 	vbus_stat = status[7] * 4 + status[6] * 2 + status[5]
-	
+
+	if BYTE_ILIM&0x3f != IDPM_LIM_BITS:
+		log("Detect diff:" +str(IDPM_LIM_BITS) + " expect:" + str(BYTE_ILIM&0x3f))
+		UsbPluggedCount = UsbPluggedCount +1
+		bus.write_byte_data(BQ25895_ADDRESS, REG_ILIM, BYTE_ILIM)
+
 	if status[2]:
 		power = "Connected"
 	else:
