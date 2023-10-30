@@ -250,6 +250,7 @@ function start_service(){
 	check_installed
 	if [ $? -eq 1 ]; then
 		echo "Start service now."
+		systemctl daemon-reload
 		systemctl start $SERVICENAME
 	else
 		echo "Service not installed."
@@ -578,6 +579,7 @@ do
 		fi
 		;;
 		8)
+			echo check service status: sudo systemctl status $SERVICENAME
 		exit
 		;;
 		*)
