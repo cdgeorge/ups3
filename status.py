@@ -47,6 +47,10 @@ REG_BATV		= 0x0e
 REG_FAULT		= 0x0c
 REG_BATI		= 0x12
 
+
+def log(str):
+	print(str)
+
 # Init i2c bus
 def init_i2c():
 	global bus
