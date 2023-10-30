@@ -17,8 +17,10 @@ BUS_ADDR 		= 1
 disconnectflag 	= False
 exit_thread 	= False
 max17048_soc	= 0
-POWEROFF_POWER  = 5
+POWEROFF_POWER = 10
 count           = 0
+UsbPluggedCount  = 0
+DumpRegisters   = 0
 
 #MAX17048 settings
 MAX17048_ADDR 	= 0x36
@@ -44,9 +46,20 @@ BYTE_CONV_ADC_STOP  = 0b00011101
 REG_BATFET_DIS  = 0x09
 BYTE_BATFET_DIS = 0b01101000
 REG_STATUS		= 0x0B #address of status register
-REG_BATV		= 0x0e
-REG_FAULT		= 0x0c
+REG_BATV		= 0x0E
+REG_FAULT		= 0x0C
 REG_BATI		= 0x12
+
+VBUS_STAT_TYPE = [
+	"N/C", #000: No Input 
+	"SDP", #001: USB Host SDP
+	"CDP", #010: USB CDP (1.5A)
+	"DCP", #011: USB DCP (3.25A)
+	"HiV", #100: Adjustable High Voltage DCP (MaxCharge) (1.5A)
+	"Unk", #101: Unknown Adapter (500mA)
+	"Nstd",#110: Non-Standard Adapter (1A/2A/2.1A/2.4A)
+	"OTG"  #111: OTG
+]
 
 # WS2812 settings
 LED_COUNT      	= 16      # Number of LED pixels.
@@ -68,12 +81,15 @@ COLOR_WHITE = Color(255,255,255)
 COLOR_BLACK = Color(0,0,0)
 
 
+def log(str):
+	app_log.info(str)
+
 # Init i2c bus
 def init_i2c():
 	global bus
 	bus = smbus.SMBus(BUS_ADDR)
 
-# Init max17048
+# Init max17048	
 def max17048_init():
 	bus.write_word_data(MAX17048_ADDR, 0xFE ,0xFFFF)
 	return True
@@ -103,25 +119,30 @@ def bq25895_translate(val, in_from, in_to, out_from, out_to):
 	val=(float(in_val)/in_range)*out_range
 	out_val = out_from+val
 	return out_val
-def bq25895_read_reg(reg):
-	return bus.read_byte_data(BQ25895_ADDRESS, reg)
 
 # BQ25895 read status
 def bq25895_read_status():
-	global SLEEPDELAY, disconnectflag, batpercentprev, bq25895_status
+	global SLEEPDELAY, disconnectflag, batpercentprev, bq25895_status, UsbPluggedCount
+	new_bq25895_status={}
 	bus.write_byte_data(BQ25895_ADDRESS, REG_CONV_ADC, BYTE_CONV_ADC_START)
 	sample = bus.read_byte_data(BQ25895_ADDRESS, REG_STATUS)
+	new_bq25895_status["REG0B"]=sample
 	status = bq25895_int_to_bool_list(sample)
 	time.sleep(1.2)
 	sample = bus.read_byte_data(BQ25895_ADDRESS, REG_BATV)
+	new_bq25895_status["REG0E"]=sample
 	batvbool = bq25895_int_to_bool_list(sample)
 	bus.write_byte_data(BQ25895_ADDRESS, REG_CONV_ADC, BYTE_CONV_ADC_STOP)
-	#print(sample)
-	vsys_stat = status[0]
-	sdp_stat = status[1]
-	pg_stat = status[2]
-	chrg_stat = status[4] * 2 + status[3]
+	sample = bus.read_byte_data(BQ25895_ADDRESS, 0x13)
+	new_bq25895_status["REG13"]=sample
+	IDPM_LIM_BITS=sample&0x3f
+	monoNow=time.clock_gettime(time.CLOCK_MONOTONIC)
 	vbus_stat = status[7] * 4 + status[6] * 2 + status[5]
+
+	if BYTE_ILIM&0x3f != IDPM_LIM_BITS:
+		log("Detect diff:" +str(IDPM_LIM_BITS) + " expect:" + str(BYTE_ILIM&0x3f))
+		UsbPluggedCount = UsbPluggedCount +1
+		bus.write_byte_data(BQ25895_ADDRESS, REG_ILIM, BYTE_ILIM)
 
 	if status[2]:
 		power = "Connected"
@@ -145,18 +166,18 @@ def bq25895_read_status():
 	batv += batvbool[3] * 0.160
 	batv += batvbool[2] * 0.08
 	batv += batvbool[1] * 0.04
-	batv += batvbool[0] * 0.02
+	batv += batvbool[0] * 0.02   
 
 	batpercent = bq25895_translate(batv,3.5,4.184,0,1)
 	if batpercent<0 :
 		batpercent = 0
 	elif batpercent >1 :
 		batpercent = 1
-
+	
 	timeleftmin = int( batpercent * 60* BAT_CAPACITY / CURRENT_DRAW)
 	if timeleftmin < 0 :
 		timeleftmin = 0
-
+	
 	if power == "Connected" :
 		timeleftmin = -1
 
@@ -171,27 +192,74 @@ def bq25895_read_status():
 		#os.system(message)
 
 	batpercentprev = batpercent
+	if DumpRegisters:
+		for reg in range(0x14+1):
+			key = "REG%02X" %reg
+			if key in new_bq25895_status:
+				value = new_bq25895_status[key]
+			else:
+				value = bus.read_byte_data(BQ25895_ADDRESS, reg)
+				new_bq25895_status[key]= value
 
-	bq25895_status = {
+	bq25895_status = { **new_bq25895_status,
 		'Input': power,
 		'ChargeStatus' : charge,
 		'BatteryVoltage' : '%.2f' % batv,
-		"BatteryPercentage" : int(batpercent*100),
-		'TimeRemaining' : int(timeleftmin)
+		"BatterySOC" : int(batpercent*100),
+		'TimeRemaining' : int(timeleftmin),
+		'VBUS_STAT' : VBUS_STAT_TYPE[vbus_stat]
 	}
-
+	
 	if(batv < 3.5):
 		bus.write_byte_data(BQ25895_ADDRESS, REG_BATFET_DIS, BYTE_BATFET_DIS)
 
-def print_bq25895status():
-	print ("Input: " , bq25895_status['Input'])
-	print ("ChargeStatus: " , bq25895_status['ChargeStatus'])
-	print ("BatteryVoltage: " , bq25895_status['BatteryVoltage'], "V")
-	print ("BatteryPercentage: " , bq25895_status['BatteryPercentage'] , "%")
-	print("VSYS_STAT: ", bin(vsys_stat), "SDP_STAT: ", bin(sdp_stat),
-		"PG_STAT:", bin(pg_stat), "CHRG_STAT:" , bin(chrg_stat),
-		"VBUS_STAT:", bin(vbus_stat))
+def log_all_registers_bq25895():
+	for reg in range(0x14+1):
+		key = "REG%02X" %reg
+		value = bq25895_status[key]
+		addString=bin(value)
+		if reg == 0x00:
+			addString= "EN_HIZ:" + str(value&0x80>>7) +" EN_ILIM:" + str(value&0x40>>6) +" IINLIM:" + str((value&0x3F)*50+100)+"mA"
+		elif reg == 0x04:
+			addString= "EN_PUMPX:" + str(value&0x80>>7) +" ICHG:" + str((value&0x7f)*64) +"mA"
+		elif reg == 0x06:
+			addString= "VREG:" + str((value&0xFC>>2)*16+3840) +"mV BATLOWV:" + str((value&0x2)>>1) +" VRECHG:" +  str((value&0x1)*100+100)+"mV"
+		elif reg == 0x0A:
+			addString= "BOOSTV:" + str((value&0xF0>>4)*64+4550) +"mV"
+		elif reg == 0x0B:
+			addString= "VBUS_STAT:" + str(value&0xE0>>5) +" CHRG_STAT:" + str(value&0x18>>3) +" PG_STAT:" + str((value&0x04)>>2)+" SDP_STAT:" + str((value&0x2)>>1)+" VSYS_STAT:" + str((value&0x1))
+		elif reg == 0x0C:
+			addString= "WATCHDOG_FAULT:" + str(value&0x80>>7) +" BOOST_FAULT:" + str(value&0x40>>6) +" CHRG_FAULT:" + str((value&0x30)>>4)+" BAT_FAULT:" + str((value&0xC)>>2)+" NTC_FAULT:" + str((value&0x3))
+		elif reg == 0x0D:
+			addString= "FORCE_VINDPM:" + str(value&0x80>>7) + " VINDPM:" + str((value&0x7f)*100+2600)+"mV"
+		elif reg == REG_BATV: # 0x0E
+			addString= "THERM_STAT:" + str(value&0x80>>7) + " BATV:" + str((value&0x7f)*20+2304)+"mV"
+		elif reg == 0x0F:
+			addString= "SYSV:" + str((value&0x7f)*20+2304)+"mV"
+		elif reg == 0x10:
+			addString= "TSPCT:" + str((value&0x7f)*0.465+21.0)+"%"
+		elif reg == 0x11:
+			addString= "VBUS_GD:" + str(value&0x80>>7) + " VBUSV:" + str((value&0x7f)*100+2600)+"mV"
+		elif reg == REG_BATI: # 0x12
+			addString= "ICHGR:" + str((value&0x7f)*50)+"mA"
+		elif reg == 0x13:
+			addString= "VDPM_STAT:" + str(value&0x80>>7) +" IDPM_STAT:" + str(value&0x40>>6) +" IDPM_LIM:" + str((value&0x3f)*50+100)+"mA"
+		elif reg == 0x14:
+			addString= "REG_RST:" + str(value&0x80>>7) +" ICO_OPTIMIZED:" + str(value&0x40>>6) +" PN:" + str(value&0x38>>3)  +" TS_PROFILE:" + str(value&0x04>>2)  +" DEV_REV:" + str((value&0x3))
+		log( " bq25895 " +key+":  0x%02x"%value+" "+addString )
 
+def print_bq25895status():
+	global count, UsbPluggedCount
+	count = count + 1
+	print ("         Count: " , count)
+	print ("UsbPluggedCount: " , UsbPluggedCount)
+	print ("         Input: " , bq25895_status['Input'])
+	print ("  ChargeStatus: " , bq25895_status['ChargeStatus'])
+	print ("BatteryVoltage: " , bq25895_status['BatteryVoltage'], "V")
+	print ("     Vbus_stat: " , bq25895_status['VBUS_STAT'])
+	if DumpRegisters:
+         log_all_registers_bq25895()
+	
 def print_max17048status():
 	print ("Status of max17048:")
 	print ('%.2f' % max17048_v , "V")
@@ -416,11 +484,22 @@ def ignore(sig, frsma):
 	exit_thread = True
 
 def handler(signum, frame):
-    print ("Signal is received:" + str(signum))
-    exit_thread=True
-    thread_led.join()
-    exit
-
+	global DumpRegisters
+	log("Signal is received:" + str(signum))
+	if signum == signal.SIGUSR1:
+		DumpRegisters=1
+		log("Enable dump registers")
+		return
+	elif signum == signal.SIGUSR2:
+		DumpRegisters=0
+		log("Disable dump registers")
+		return
+	if ServiceWasRunning:
+		os.system("systemctl start smartups")
+	exit_thread=True
+	thread_led.join()
+	exit(0)
+	
 def handle_signal():
 	signal.signal(signal.SIGUSR1, handler)
 	signal.signal(signal.SIGUSR2, handler)
@@ -429,8 +508,11 @@ def handle_signal():
 	signal.signal(signal.SIGQUIT, handler)
 
 def logging_status():
-	info = ' Input:' + bq25895_status['Input'] + ' , ChargeStatus: ' + bq25895_status['ChargeStatus'] + ' , SOC:' + str(max17048_soc) + "%"
+	info = ' Input:' + bq25895_status['Input'] + ' , ChargeStatus: ' + bq25895_status['ChargeStatus'] + ' , SOC:' + str(max17048_soc) + "% USB Plugged count:" + str(UsbPluggedCount)
 	app_log.info(info)
+	if DumpRegisters:
+		log_all_registers_bq25895()
+
 
 # Main Loop
 if __name__ == '__main__':
@@ -447,6 +529,7 @@ if __name__ == '__main__':
 	init_i2c()
 	max17048_init()
 	bq25895_init()
+	handle_signal()
 	bq25895_read_status()
 	led_init()
 	led_precharge()
@@ -463,9 +546,12 @@ if __name__ == '__main__':
 				if count > 10:
 					logging.warning("Shutdown")
 					os.system("sudo halt -h")
+			else:
+				count=0
 			#print bq25895_status['Input']
 			#print " Charge status:" , bq25895_status['ChargeStatus'], " soc: ", max17048_soc
-	except:
+	except Exception as e:
+		log(str(e))
 		exit_thread=True
 		thread_led.join()
 		exit
