@@ -1,26 +1,46 @@
 # ups3
-This repository is a fork from the original 
-[Raspberry Pi UPS HAT V3](https://github.com/geekworm-com/ups3) 
-repository with the focus of making it compatible with python3.
+
+This repository is a fork of a fork from the original 
+[Raspberry Pi UPS HAT V3](https://github.com/geekworm-com/ups3).
+Owners email contact: info@geekworm.com
+
+## Fork by as207564
+
+[As207564](https://github.com/as207564/ups3) forked the repository with the focus of making it compatible with python3.
 
 Systemctl service was originally configured to use the default 'pi' user.
 This did however not work, as the user 'pi' did not have the sufficient rights to read from i2c (i guess; i'm no expert...). User was changed to 'root'.
 
 Script's was also not using the python3 print() syntax, so this was corrected as well.
 
-Owners email contact: info@geekworm.com
+## Fork by cdgeorge
+
+My [Cdgeorge](https://github.com/cdgeorge/ups3) fork has the main focus to make the UPS work as expected, by addressing some of the issues in the origianl software.
+
+1. Bugfix: Repluging the rpi powersupply does no longer result in a slow loose of power, due to a current limit of 500 mA at 5V.
+2. Limit the amount of logging, only log on change.
+3. Added an estimate of time left before shutdowning when discarging.
+4. Added signal handling.
+5. Corrected execption handling.
+6. Added support for dumpling all registers of BQ25895, without restarting the service.
+7. Maded the status.py python3 compatable.
+8. Formatted and aligned smartups.py and status.py
+9. Added systemctl daemon-reload to install script
+
+### Missing
+Fails a cupple of times on start up
+
 # Test
 This project has been tested on a Raspberry Pi 4 (Buster) system.
 
 # Setup (Raspberry Pi)
 
+```shell
 git clone https://github.com/geekworm-com/ups3.git
-
 cd ups3
-
 chmod +x *.sh *.py
-
 sudo ./install.sh
+```
 
                ┌────────────────────┤ UPS V3 Setting ├────────────────────┐
                │ Select the appropriate options:                          │
@@ -80,9 +100,9 @@ Exit this menu;
 
 View Status:
 
-sudo python status.py or sudo python status.py -t
+`sudo python status.py` or `sudo python status.py -t`
 
 View logs:
 
-cat /var/log/smartups.log
+`cat /var/log/smartups.log`
 
